@@ -54,6 +54,8 @@ setwd("/cloud/project/decision_trees")
 library(caret)
 install.packages("C50")
 install.packages("mlbench")
+install.packages("e1071")
+library(e1071)
 ```
 
 
@@ -64,7 +66,8 @@ data <- tibble(import("clinical_breast_cleaned.csv", check.names= TRUE))
 
 ```{r}
 #2 Ensure all the variables are classified correctly and ensure the target variable for "PR.Status" is 0 for negative and 1 for positive
-data$PR.Status <- as.factor(data$PR.Status)
+
+data$PR.Status <- as.numeric(data$PR.Status)
 ```
 
 ```{r}
@@ -90,44 +93,84 @@ test <- data[-x,]
 ```{r}
 #6 Ok now determine the baserate for the classifier, what does this number mean.  
 #For the multi-class this will be the individual percentages for each class. 
+data_long = data %>% gather(Var, #<- list of predictor variables
+                                Value,#<- the values of those predictor variables
+                                -PR.Status) 
+data_long_form = ddply(data_long, 
+                            .(Var, Value),#<- group by Var and Value, "." 
+                            #allows us to call the variables without quoting
+                            summarize,  
+                            prob_PR.Status = mean(PR.Status), #<- probability of being Parent
+                            prob_not_PR.Status = 1 - mean(PR.Status)) #<- probability of not being Parent
 
 ```
 
 ```{r}
 #7 Build your model using the default settings
+set.seed(2702)
+data_gini = rpart(PR.Status~.,  #<- formula, response variable ~ predictors
+                           #   "." means "use all other variables in data"
+                            method = "class",#<- specify method, use "class" for tree
+                            parms = list(split = "gini"),#<- method for choosing tree split
+                            data = training,#<- data used
+                            control = rpart.control(cp=.01))
+
+
 ```
 
 ```{r}
-#8 View the results, what is the most important variable for the tree? 
+#8 View the results, what is the most important variable for the tree?
+#Look at the results
+data_gini
 ```
 
 ```{r}
 #9 Plot the tree using the rpart.plot package (CART only).
+
+rpart.plot(data_gini, type =4, extra = 101)
 ```
 
 ```{r}
 #10 plot the cp chart and note the optimal size of the tree (CART only).
+plotcp(data_gini)
 ```
 
 
 ```{r}
 #11 Use the predict function and your models to predict the target variable using
 #test set. 
+tree_predict = predict(data_gini,test, type= "class")
 ```
 
 ```{r}
 #12 Generate, "by-hand", the hit rate and detection rate and compare the 
 #detection rate to your original baseline rate. How did your models work?
+confusionMatrix(as.factor(tree_predict), as.factor(test$PR.Status), positive = "PR.Status", dnn=c("Prediction", "Actual"), mode = "sens_spec")
 ```
 
 ```{r}
 #13 Use the the confusion matrix function in caret to 
 #check a variety of metrics and comment on the metric that might be best for 
 #each type of analysis.  
+par_conf_matrix<-confusionMatrix(as.factor(tree_predict), as.factor(test$PR.Status), positive = "PR.Status", dnn=c("Prediction", "Actual"), mode = "sens_spec")
+
+sum(par_conf_matrix[row(par_conf_matrix)!= col(par_conf_matrix)])
+
+par_error_rate = sum(par_conf_matrix[row(par_conf_matrix) != col(par_conf_matrix)]) / sum(par_conf_matrix)
+
+paste0("Hit Rate/True Error Rate:", par_error_rate * 100, "%")
+
+#Detection Rate 
+
+
+
+par_conf_matrix[2,2]/sum(par_conf_matrix)#
 ```
 
 ```{r}
 #14 Generate a ROC and AUC output, interpret the results
+par_roc <- roc(test$PR.Status, as.numeric(tree_predict), plot = TRUE)
+plot(par_roc)
 ```
 
 ```{r}
